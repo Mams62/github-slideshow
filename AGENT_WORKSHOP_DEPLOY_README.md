@@ -1,0 +1,1 @@
+Isolated Agent Workshop Cloud v2 deployment branch; not Wave Transakt. The source is compressed in agent-workshop-cloud-capsule.b64 for the Render Docker build. Requires DATABASE_URL from dedicated Neon project. AI guided mode is free, external model requires an API key. See release ZIP for source. Do not write secrets to Git.
