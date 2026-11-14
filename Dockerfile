@@ -10,8 +10,6 @@ COPY research_extension.py /app/research_extension.py
 COPY install_research.py /app/install_research.py
 COPY web_search_ui.js /app/web/web_search_ui.js
 RUN python install_research.py && rm -f install_research.py
-COPY agent_workshop_websearch_patch.py /tmp/agent_workshop_websearch_patch.py
-RUN python /tmp/agent_workshop_websearch_patch.py && python -m py_compile server.py web_search.py && rm /tmp/agent_workshop_websearch_patch.py
 RUN adduser --system --group appuser && mkdir -p /data && chown appuser:appuser /data
 ENV HOST=0.0.0.0 TRUST_PROXY=1
 USER appuser
