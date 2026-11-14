@@ -1,3 +1,6 @@
 **
 !Dockerfile
 !agent-workshop-cloud-capsule.b64
+!research_extension.py
+!install_research.py
+!web_search_ui.js
