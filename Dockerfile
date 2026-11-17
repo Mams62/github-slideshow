@@ -9,7 +9,10 @@ RUN python -c 'from pathlib import Path; p=Path("web/index.html"); s=p.read_text
 COPY research_extension.py /app/research_extension.py
 COPY install_research.py /app/install_research.py
 COPY web_search_ui.js /app/web/web_search_ui.js
-RUN python install_research.py && rm -f install_research.py
+COPY test_research.py /app/test_research.py
+RUN python install_research.py \
+ && python -m unittest test_research -v \
+ && rm -f install_research.py test_research.py
 RUN adduser --system --group appuser && mkdir -p /data && chown appuser:appuser /data
 ENV HOST=0.0.0.0 TRUST_PROXY=1
 USER appuser

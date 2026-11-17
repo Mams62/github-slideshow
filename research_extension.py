@@ -10,6 +10,7 @@ import threading
 import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
+from knowledge import PAGE_GUIDES
 
 _lock = threading.Lock()
 _quota = {'day': '', 'all': 0, 'users': {}}
@@ -39,10 +40,17 @@ def _allowed(user_role):
     return user_role in permitted
 
 
+def _limit(name, default, maximum):
+    try:
+        return min(max(int(os.getenv(name, str(default))), 1), maximum)
+    except ValueError:
+        return default
+
+
 def _take_quota(user_id, APIError):
     day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-    daily = min(max(int(os.getenv('WEB_SEARCH_DAILY_LIMIT', '20')), 1), 100)
-    total = min(max(int(os.getenv('WEB_SEARCH_GLOBAL_DAILY_LIMIT', '80')), 1), 400)
+    daily = _limit('WEB_SEARCH_DAILY_LIMIT', 20, 100)
+    total = _limit('WEB_SEARCH_GLOBAL_DAILY_LIMIT', 80, 400)
     with _lock:
         if _quota['day'] != day:
             _quota.update({'day': day, 'all': 0, 'users': {}})
@@ -84,14 +92,40 @@ def search_tavily(query, api_key, APIError):
 
 
 def install(Handler, APIError):
+    if getattr(Handler, '_research_installed', False):
+        return
     original_post_api = Handler.post_api
+    original_get_api = Handler.get_api
+
+    def get_api_with_research(self, con, path):
+        if path != '/api/research/status':
+            return original_get_api(self, con, path)
+        user = self.require(con)
+        allowed = _allowed(user['role'])
+        configured = bool(os.getenv('TAVILY_API_KEY', '').strip())
+        return self.json_reply({
+            'ok': True, 'provider': 'Tavily', 'allowed': allowed,
+            'configured': configured if allowed else False,
+            'ready': allowed and configured,
+            'mode': 'opt-in', 'version': 'page-research-20261117',
+            'notice': ('Web research is not enabled for your role.' if not allowed else
+                       'Search is configured. Click Search the live web to check the provider.' if configured else
+                       'Live web search needs TAVILY_API_KEY in the Render environment. The application build is working.'),
+        })
 
     def post_api_with_research(self, con, path, data):
         if path != '/api/research/web':
             return original_post_api(self, con, path, data)
         user = self.require(con)
         if not _allowed(user['role']):
-            raise APIError(403, 'Web research is admin-only during staging.')
+            raise APIError(403, 'Web research is not enabled for your role. Admin only by default during staging.')
+        page = data.get('page', 'overview')
+        if not isinstance(page, str) or page not in PAGE_GUIDES:
+            raise APIError(400, 'Unknown workspace page')
+        if page in ('agents', 'workshop') and user['role'] != 'admin':
+            raise APIError(403, 'Admin only')
+        if page == 'outreach' and user['role'] == 'creator':
+            raise APIError(403, 'Company only')
         query = data.get('query', '')
         if not isinstance(query, str) or not (3 <= len(query.strip()) <= 250):
             raise APIError(400, 'Enter a public research question of 3–250 characters.')
@@ -106,9 +140,11 @@ def install(Handler, APIError):
         _take_quota(user['id'], APIError)
         results = search_tavily(query, api_key, APIError)
         return self.json_reply({
-            'ok': True, 'query': query, 'provider': 'Tavily',
+            'ok': True, 'query': query, 'provider': 'Tavily', 'page': page,
             'mode': 'live-web', 'sources': results,
             'notice': 'Public search snippets are untrusted evidence, not verified facts or automatically approved leads.'
         })
 
     Handler.post_api = post_api_with_research
+    Handler.get_api = get_api_with_research
+    Handler._research_installed = True

@@ -7,6 +7,7 @@ window.addEventListener('DOMContentLoaded', () => {
   if (!form || !open) return;
   const section = document.createElement('section');
   section.className = 'ai-reply';
+  section.hidden = true;
   section.style.marginTop = '12px';
   section.innerHTML = '<p><strong>Live web research</strong> <span class="eyebrow">PUBLIC WEB</span></p>' +
     '<p class="small muted">Search current articles, public business information, conferences and industry trends. Your query is sent to Tavily; never include private client or payment details. Requires the administrator to connect a search API key.</p>' +
@@ -21,16 +22,35 @@ window.addEventListener('DOMContentLoaded', () => {
   const reuse = section.querySelector('#ai-web-use');
   let lastResults = [];
   let lastQuery = '';
-  open.addEventListener('click', () => {
-    section.hidden = state.user?.role !== 'admin';
+  let generation = 0;
+  let ready = false;
+  let researchPage = 'overview';
+  open.addEventListener('click', async () => {
+    const current = ++generation;
+    section.hidden = false;
+    ready = false;
+    researchPage = state.section;
+    searchButton.disabled = true;
     lastResults = [];
     lastQuery = '';
-    feedback.textContent = '';
+    feedback.textContent = 'Checking web research configuration…';
     sources.replaceChildren();
     reuse.hidden = true;
+    try {
+      const status = await api('/api/research/status');
+      if (current !== generation) return;
+      ready = status.ready === true;
+      feedback.textContent = status.notice;
+      searchButton.disabled = !ready;
+    } catch (err) {
+      if (current !== generation) return;
+      feedback.textContent = err.message || 'Unable to check research configuration. Close and reopen this assistant to retry.';
+    }
   });
   const safe = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   searchButton.addEventListener('click', async () => {
+    if (!ready) return;
+    const current = generation;
     const query = document.getElementById('ai-question').value.trim();
     if (query.length < 3 || query.length > 250) {
       feedback.textContent = 'Write a public web search question of 3–250 characters in the AI box first.';
@@ -42,7 +62,8 @@ window.addEventListener('DOMContentLoaded', () => {
     feedback.textContent = 'Searching public websites…';
     searchButton.disabled = true;
     try {
-      const result = await api('/api/research/web', {query});
+      const result = await api('/api/research/web', {query, page:researchPage});
+      if (current !== generation) return;
       lastQuery = result.query;
       lastResults = result.sources || [];
       feedback.textContent = lastResults.length ? `${lastResults.length} live source(s) found. Review each before relying on it.` : 'No public sources found. Try a different query.';
@@ -53,9 +74,10 @@ window.addEventListener('DOMContentLoaded', () => {
       }).join('');
       reuse.hidden = !lastResults.length;
     } catch (err) {
+      if (current !== generation) return;
       feedback.textContent = err.message || 'Search failed.';
     } finally {
-      searchButton.disabled = false;
+      if (current === generation) searchButton.disabled = !ready;
     }
   });
   reuse.addEventListener('click', () => {
